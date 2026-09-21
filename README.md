@@ -1,7 +1,7 @@
 # EcoGuard-AI
 환경지킴이 AI 모델 레포지토리입니다.
 # ai 작동방식 워크플로
-
+```mermaid
 flowchart TD
     A[사용자]
 

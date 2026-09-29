@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+datasets/raw/**
+datasets/annotations/**
+datasets/splits/**
+datasets/processed/**
+models/global/dustpan/**
+models/global/zone_encoder/**
+models/zones/**
+!datasets/**/.gitkeep
+!models/**/.gitkeep

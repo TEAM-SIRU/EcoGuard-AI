@@ -6,11 +6,11 @@ EcoGuard AI는 스마트폰 사진 **1장**으로 지정된 청소구역/Checkpo
 
 ## Architecture
 
-1. **Dustpan YOLO**: `dustpan`, `trash` 탐지
-2. **Region Masker**: 검출된 쓰레받이 영역 Mask
-3. **Zone Recognition**: 요청된 `zone_id + checkpoint_id`의 장소가 맞는지 검증
-4. **PatchCore**: 해당 Zone/Checkpoint의 청소 상태 이상탐지
-5. **FinalEvaluator**: AI 결과를 규칙 기반으로 종합
+1. **Dustpan YOLO**: 전체 사진에서 `dustpan` 검출, 쓰레받이 crop에서 `trash` 검출
+2. **Region Splitter**: 쓰레받이 bbox를 가린 Stair View와 쓰레받이 bbox Crop 생성
+3. **Zone Recognition**: Stair View가 요청된 `zone_id + checkpoint_id` 장소인지 검증
+4. **PatchCore**: Stair View의 구역별 청소 상태 이상탐지
+5. **FinalEvaluator**: 두 검사 결과를 규칙 기반으로 종합
 
 ## Current Development Strategy
 
@@ -30,7 +30,9 @@ EcoGuard AI는 스마트폰 사진 **1장**으로 지정된 청소구역/Checkpo
 - Zone Recognition은 고정 Classifier 대신 **Reference Embedding 기반 검증 구조**를 사용해 새 Zone 추가 시 기존 전체 모델 재학습을 피한다.
 - Zone Recognition의 기본 Encoder는 프로젝트에서 고정한 pretrained visual encoder를 사용하며, Reference Bank는 Zone/Checkpoint별 데이터로 생성한다.
 - PatchCore는 `zone_id + checkpoint_id`별 정상 데이터를 사용해 Memory Bank를 생성한다.
-- 쓰레받이 영역은 Crop하지 않고 Mask 처리한 뒤 Zone Recognition/PatchCore에 전달한다.
+- 입력 사진에서 Dustpan YOLO로 쓰레받이를 찾은 뒤 Stair View(쓰레받이 bbox를 가린 전체 장면)와 Dustpan Crop(bbox crop)을 분리한다.
+- Zone Recognition/PatchCore는 Stair View만 처리하고, Dustpan Crop의 trash 검사는 Dustpan YOLO가 처리한다.
+- 학습/빌드와 추론은 동일한 Stair View Mask/Resize/Normalize 규칙을 사용한다. 계단 학습 사진은 쓰레받이가 없어도 허용한다.
 - 학습/빌드와 추론의 Mask/Resize/Normalize 규칙은 동일하게 유지한다.
 - 개별 Zone을 Python `if/elif`로 하드코딩하지 않는다. Zone Registry와 데이터/모델 자산으로 확장한다.
 - 모델 모듈은 분석 결과만 반환하고 최종 PASS/FAIL은 `FinalEvaluator`가 결정한다.

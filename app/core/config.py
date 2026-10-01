@@ -24,8 +24,6 @@ class Settings:
     image_size: int = 224
     imagenet_mean: tuple[float, float, float] = (0.485, 0.456, 0.406)
     imagenet_std: tuple[float, float, float] = (0.229, 0.224, 0.225)
-    # These remain unset until a dataset-backed validation/build supplies them.
-    trash_inside_threshold: float | None = None
     yolo_model_yaml: str = "yolov8n.yaml"
 
     def __post_init__(self) -> None:
@@ -54,7 +52,6 @@ class Settings:
             image_size=int(os.getenv("ECOGUARD_IMAGE_SIZE", base.image_size)),
             imagenet_mean=base.imagenet_mean,
             imagenet_std=base.imagenet_std,
-            trash_inside_threshold=(float(os.environ["ECOGUARD_TRASH_INSIDE_THRESHOLD"]) if os.getenv("ECOGUARD_TRASH_INSIDE_THRESHOLD") else None),
             yolo_model_yaml=os.getenv("ECOGUARD_YOLO_MODEL_YAML", base.yolo_model_yaml),
         )
 

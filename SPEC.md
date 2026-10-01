@@ -70,38 +70,23 @@ main_stair_a
 ```
 image + zone_id + checkpoint_id
           ↓
-Image Validator
+Image Validator / Global Model Readiness
           ↓
-Global Model Readiness Check
+Full-image Dustpan YOLO
+          └─ dustpan 없음 → DUSTPAN_NOT_FOUND / 즉시 FAIL
           ↓
-Dustpan YOLO
-          ├─ dustpan 없음 → DUSTPAN_NOT_FOUND / 즉시 FAIL
-          └─ dustpan + trash 탐지
+Region Split: Stair View + Dustpan Crop
           ↓
-Dustpan Mask
+Zone Recognition (Stair View) → 불일치 시 FAIL
           ↓
-Zone Registry Lookup
-          ├─ zone 없음 → UNKNOWN_ZONE
-          ├─ checkpoint 없음 → UNKNOWN_CHECKPOINT
-          └─ Zone Asset 경로 확인
+PatchCore (Stair View) → 이상 시 FAIL
           ↓
-Zone Asset Readiness Check
-          ├─ Reference Bank 없음 → ZONE_MODEL_NOT_READY
-          └─ PatchCore Memory Bank 없음 → ZONE_MODEL_NOT_READY
+Dustpan YOLO (Dustpan Crop) → trash 없음 시 FAIL
           ↓
-Zone Recognition
-          ├─ requested zone/checkpoint 검증 실패 → ZONE_NOT_RECOGNIZED / 즉시 FAIL
-          ↓
-PatchCore
-          ↓
-Trash-Inside 판정
-          ↓
-FinalEvaluator
-          ↓
-PASS / FAIL JSON
+FinalEvaluator → PASS / FAIL JSON
 ```
 
----
+요청 입력은 사진 한 장이다. 쓰레받이는 전체 사진에서 먼저 찾는다. Zone Recognition과 PatchCore에는 쓰레받이 bbox를 검정으로 가린 계단 장면을, trash 검출에는 쓰레받이 bbox crop을 별도로 전달한다. Zone/PatchCore 학습 사진은 계단만 보여도 된다. 학습 사진에 쓰레받이가 보이면 검출 후 같은 방식으로 가린다.
 
 # 4. Dustpan YOLO
 
@@ -140,119 +125,57 @@ python -m training.run_pipeline --component dustpan
 
 ---
 
-# 5. Dustpan Mask
+# 5. 이미지 영역 분리
 
-Dustpan YOLO가 반환한 Bounding Box를 검증한 뒤 전체 이미지에서 해당 영역만 Mask한다.
+Full-image Dustpan YOLO가 검출한 쓰레받이 Bounding Box로 두 입력을 만든다.
 
-- Crop하지 않는다.
-- 전체 크기와 구도를 유지한다.
-- Zone Recognition과 PatchCore가 같은 `region_masker.py`를 사용한다.
-- Reference 생성/PatchCore Build/실제 추론에서 동일한 Mask 규칙을 사용한다.
-- 유효하지 않은 Bounding Box → `INVALID_DETECTION_RESULT`
+- Stair View: 전체 크기/구도를 유지하고 쓰레받이 bbox 영역만 검정으로 가린 장면.
+- Dustpan Crop: 쓰레받이 bbox만 자른 이미지.
+- Zone Recognition과 PatchCore는 Stair View만 처리한다.
+- 두 번째 YOLO 검사는 Dustpan Crop만 처리한다.
+- Zone/PatchCore 빌드 데이터는 쓰레받이가 없는 계단 사진도 허용한다. 쓰레받이가 검출되면 동일하게 가린다.
+- 추론 사진에는 계단과 쓰레받이가 함께 보여야 하며, 쓰레받이 검출은 필수다.
+- 학습/추론의 Stair View Mask/Resize/Normalize 규칙은 동일하다.
 
----
 
 # 6. Zone Recognition
 
-## 목적
-
-사진이 요청된 `zone_id + checkpoint_id` 장소가 맞는지 확인한다.
-
-## 구조
-
-고정 `zone_A / zone_B / unknown` Classifier를 사용하지 않는다.
-
-MVP는 **Reference Embedding 기반 검증**을 사용한다.
+Stair View가 요청된 `zone_id + checkpoint_id` 장소인지 확인한다. 고정 Classifier 대신 공통 pretrained ResNet18 Encoder와 Reference Embedding 검증을 사용한다.
 
 ```
-Masked Image
-→ Visual Encoder
-→ L2-normalized Embedding
-→ Requested Zone/Checkpoint Reference Bank와 Cosine Similarity
-→ Threshold 검증
-→ Recognized / Not Recognized
+Stair View → Encoder → L2-normalized Embedding
+→ 해당 Zone/Checkpoint Reference Bank와 Cosine Similarity
+→ Validation threshold → Recognized / Not Recognized
 ```
 
-## Visual Encoder
-
-- MVP 기본 Encoder는 **torchvision ResNet18 pretrained ImageNet weights**를 사용한다.
-- 마지막 classification head를 사용하지 않고 feature embedding을 추출한 뒤 L2 Normalize한다.
-- Encoder 구현은 interface/factory로 감싸 나중에 다른 Encoder로 교체 가능하게 한다.
-- 전역 모델로 관리하며 새 Zone 추가 시 Encoder 재학습은 하지 않는다.
-- 정확한 torchvision/PyTorch 버전과 Weight 식별자는 의존성 및 metadata에 고정한다.
-- 런타임 인터넷 다운로드에 의존하지 않도록 모델 자산 준비 단계에서 Weight 사용 가능 여부를 확인한다.
-
-## Reference Bank
-
-각 `zone_id + checkpoint_id`별 Reference Embedding Bank를 생성한다.
-
-새 Zone 추가:
-
-```
-Reference 이미지
-→ 공통 Mask/Preprocess
-→ Encoder
-→ Embedding
-→ Reference Bank 저장
-→ Validation으로 Threshold 결정
-→ Registry 등록
-```
-
-기존 Zone 전체를 다시 학습하지 않는다.
-
-## Validation
-
-- 해당 장소 positive 이미지
-- 다른 Zone/Checkpoint 또는 미등록 장소 negative 이미지
-
-를 사용해 `ZONE_RECOGNITION_THRESHOLD`를 검증한다.
-
-## 판정
+각 Zone/Checkpoint별 Reference Bank와 threshold를 생성한다. Reference/positive/negative 데이터는 계단 장면 사진이며, 쓰레받이가 함께 보이면 bbox 영역을 가리고, 없으면 원본 계단 장면을 쓴다. Encoder는 새 구역마다 재학습하지 않는다.
 
 - similarity >= threshold → Recognized
-- similarity < threshold → `ZONE_NOT_RECOGNIZED`
+- similarity < threshold → ZONE_NOT_RECOGNIZED
 
----
 
 # 7. PatchCore
 
-## 목적
+Stair View에서 요청 장소의 청소 상태가 정상과 다른지 탐지한다. 각 `zone_id + checkpoint_id`별로 별도 Memory Bank와 threshold를 생성한다.
 
-올바른 장소의 청소 상태가 정상과 다른지 탐지한다.
-
-## 데이터
-
-각 `zone_id + checkpoint_id`별 별도 관리.
-
-- Train: 정상만
-- Validation: 정상 + 이상
-- Test: 정상 + 이상
-
-## Build Pipeline
+- Train: 정상 계단 사진만
+- Validation/Test: 정상 사진과 쓰레기 등 이상 사진
+- 쓰레받이는 계단 데이터에 없어도 된다. 검출되면 bbox 영역을 가린다.
 
 ```
-정상 Train 이미지
-→ Dustpan Mask
-→ 동일 Resize/Normalize
-→ Feature extraction
-→ Memory Bank
-→ Validation
-→ anomaly threshold
-→ 자산 + metadata 저장
+Normal train stairs → Shared stair-view preprocessing
+→ Resize/Normalize → Feature extraction
+→ Per-Checkpoint Memory Bank → Normal/anomaly validation
+→ Anomaly threshold → Assets + metadata
 ```
-
-권장 명령:
 
 ```bash
 python -m training.run_pipeline --component patchcore --zone-id main_stair_a --checkpoint-id f1_f2
 ```
 
-- `anomaly_score <= threshold` → 정상
-- `anomaly_score > threshold` → `ZONE_ANOMALY_DETECTED`
+- anomaly_score <= threshold → 정상
+- anomaly_score > threshold → ZONE_ANOMALY_DETECTED
 
-PatchCore pretrained feature backbone 사용은 허용한다.
-
----
 
 # 8. Zone Registry
 
@@ -405,18 +328,15 @@ tests/
 
 ---
 
-# 13. Trash-Inside 판정
+# 13. 쓰레받이 내부 Trash 판정
 
-초기 MVP:
+쓰레받이가 검출되면 bbox crop을 만들고 Dustpan YOLO에 다시 전달한다.
 
-- trash bbox center
-- dustpan/trash intersection ratio
+- crop 안에 trash 검출 → `trash_detected=true`
+- crop 안에 trash 미검출 → `TRASH_NOT_FOUND_IN_DUSTPAN` FAIL
+- 계단의 쓰레기/청소 이상은 PatchCore가 Stair View에서 별도로 판정한다.
+- 별도 Trash-Inside overlap threshold는 사용하지 않는다.
 
-`TRASH_INSIDE_THRESHOLD`는 Validation으로 결정한다.
-
-**여러 trash 중 하나라도 쓰레받이 외부면 `TRASH_OUTSIDE_DUSTPAN` FAIL.**
-
----
 
 # 14. PASS 조건
 
@@ -429,7 +349,7 @@ tests/
 - Zone/Checkpoint recognition 성공
 - PatchCore 정상
 - trash 검출
-- 모든 trash가 dustpan 내부
+- Trash is detected in the Dustpan Crop.
 
 ---
 
@@ -441,7 +361,6 @@ tests/
 - `ZONE_NOT_RECOGNIZED`
 - `ZONE_ANOMALY_DETECTED`
 - `TRASH_NOT_FOUND_IN_DUSTPAN`
-- `TRASH_OUTSIDE_DUSTPAN`
 
 ## 입력 오류
 

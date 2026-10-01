@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from app.ai.region_masker import BoundingBox, create_dustpan_mask, trash_is_inside, trash_overlap_ratio
+from app.ai.region_masker import BoundingBox, crop_dustpan, create_stair_view
 from app.ai.zone_recognition import cosine_similarity, l2_normalize
 from app.core.config import settings
 from app.services.errors import EcoGuardError
@@ -25,7 +25,6 @@ def test_config_load_defaults():
     assert settings.max_upload_bytes == 10 * 1024 * 1024
     assert settings.max_image_pixels == 20_000_000
     assert settings.max_inference_concurrency == 1
-    assert settings.trash_inside_threshold is None
 
 
 def test_image_validator_accepts_jpeg_and_png_and_rejects_invalid():
@@ -47,22 +46,18 @@ def test_image_validator_enforces_upload_and_pixel_limits():
     assert too_many_pixels.value.code == "INVALID_IMAGE"
 
 
-def test_mask_preserves_image_dimensions_and_rejects_bad_bbox():
+def test_region_split_masks_stairs_and_crops_dustpan():
     image = Image.new("RGB", (20, 12), "white")
-    masked = create_dustpan_mask(image, BoundingBox(2, 2, 10, 10))
-    assert masked.size == image.size
-    assert masked.getpixel((4, 4)) == (255, 255, 255)
-    assert masked.getpixel((0, 0)) == (0, 0, 0)
+    box = BoundingBox(2, 2, 10, 10)
+    stairs = create_stair_view(image, box)
+    pan = crop_dustpan(image, box)
+    assert stairs.size == image.size
+    assert stairs.getpixel((4, 4)) == (0, 0, 0)
+    assert stairs.getpixel((0, 0)) == (255, 255, 255)
+    assert pan.size == (8, 8)
     with pytest.raises(EcoGuardError) as invalid:
-        create_dustpan_mask(image, BoundingBox(-1, 0, 3, 3))
+        create_stair_view(image, BoundingBox(-1, 0, 3, 3))
     assert invalid.value.code == "INVALID_DETECTION_RESULT"
-
-
-def test_trash_inside_requires_center_and_overlap():
-    dustpan = BoundingBox(0, 0, 10, 10)
-    assert trash_is_inside(dustpan, BoundingBox(2, 2, 4, 4), overlap_threshold=0.5)
-    assert trash_overlap_ratio(dustpan, BoundingBox(2, 2, 4, 4)) == pytest.approx(1.0)
-    assert not trash_is_inside(dustpan, BoundingBox(9, 2, 12, 4), overlap_threshold=0.5)
 
 
 def test_l2_normalize_and_cosine_similarity():
@@ -82,7 +77,7 @@ def test_threshold_is_derived_from_validation_scores():
 def test_final_evaluator_owns_pass_fail_decision():
     passed = FinalEvaluator.evaluate(zone_id="z", checkpoint_id="c", user_id=None,
                                      analyses={"dustpan_detected": True, "zone_recognized": True,
-                                               "zone_anomaly": False, "trash_detected": True, "trash_outside": False})
+                                               "zone_anomaly": False, "trash_detected": True})
     failed = FinalEvaluator.evaluate(zone_id="z", checkpoint_id="c", user_id="u",
                                      analyses={"dustpan_detected": False}, failures=["DUSTPAN_NOT_FOUND"])
     assert passed.decision == "PASS" and passed.is_passed
@@ -126,33 +121,6 @@ def test_training_orchestrator_reports_missing_dataset_without_training():
     with pytest.raises(DatasetNotReady) as missing:
         run("all")
     assert any("no images found" in item for item in missing.value.missing)
-
-
-def test_trash_threshold_calibration_uses_inside_outside_validation():
-    from training.trash_threshold import TrashValidationExample, calibrate_trash_inside_threshold
-    threshold, summary = calibrate_trash_inside_threshold([
-        TrashValidationExample(True, True, 0.92),
-        TrashValidationExample(True, True, 0.85),
-        TrashValidationExample(False, False, 0.95),
-        TrashValidationExample(False, True, 0.20),
-    ])
-    assert 0.20 <= threshold <= 0.85
-    assert summary["balanced_accuracy"] == 1.0
-
-
-def test_global_trash_threshold_can_be_loaded_from_trained_metadata(tmp_path):
-    from app.services.inference import CleaningInference
-    from training.metadata import save_metadata
-    weight_path = tmp_path / "dustpan" / "best.pt"
-    save_metadata(weight_path.parent / "metadata.json", component="dustpan", zone_id=None, checkpoint_id=None,
-                  values={"trash_inside_threshold": 0.63})
-    config = replace(settings, dustpan_weight_path=weight_path, trash_inside_threshold=None)
-    assert CleaningInference._trash_threshold(config) == pytest.approx(0.63)
-
-def test_global_trash_threshold_rejects_unvalidated_values():
-    from app.services.inference import CleaningInference
-    config = replace(settings, trash_inside_threshold=1.1)
-    assert CleaningInference._trash_threshold(config) is None
 
 
 def test_reference_bank_round_trip_and_add_new_checkpoint_without_training(tmp_path):
@@ -202,13 +170,6 @@ def _prepare_yolo_dataset(root):
         label_dir.mkdir(parents=True)
         Image.new("RGB", (8, 8), "white").save(image_dir / "sample.JPG", format="JPEG")
         (label_dir / "sample.txt").write_text("0 0.5 0.5 0.5 0.5\n1 0.5 0.5 0.1 0.1\n", encoding="utf-8")
-    for kind in ("inside", "outside"):
-        image_dir = root / "raw" / "dustpan" / "trash_inside" / kind / "images"
-        label_dir = root / "raw" / "dustpan" / "trash_inside" / kind / "labels"
-        image_dir.mkdir(parents=True)
-        label_dir.mkdir(parents=True)
-        Image.new("RGB", (8, 8), "white").save(image_dir / "sample.png", format="PNG")
-        (label_dir / "sample.txt").write_text("0 0.5 0.5 0.5 0.5\n1 0.5 0.5 0.1 0.1\n", encoding="utf-8")
 
 def test_dataset_validator_builds_yaml_and_accepts_uppercase_images(tmp_path):
     from training.dataset_validator import validate_yolo_dataset
@@ -216,7 +177,6 @@ def test_dataset_validator_builds_yaml_and_accepts_uppercase_images(tmp_path):
     _prepare_yolo_dataset(root)
     result = validate_yolo_dataset(replace(settings, dataset_dir=root))
     assert len(result.train_images) == 1
-    assert len(result.trash_inside_images) == 1
     assert "0: dustpan" in result.yaml_path.read_text(encoding="utf-8")
 
 def test_dataset_validator_rejects_invalid_yolo_classes(tmp_path):

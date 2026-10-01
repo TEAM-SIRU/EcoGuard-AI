@@ -24,8 +24,6 @@ class YoloDataset:
     yaml_path: Path
     train_images: tuple[Path, ...]
     val_images: tuple[Path, ...]
-    trash_inside_images: tuple[Path, ...]
-    trash_outside_images: tuple[Path, ...]
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
@@ -38,35 +36,22 @@ def validate_yolo_dataset(config: Settings = settings) -> YoloDataset:
         "train labels": base / "raw/dustpan/labels/train",
         "validation images": base / "raw/dustpan/images/val",
         "validation labels": base / "raw/dustpan/labels/val",
-        "trash inside validation images": base / "raw/dustpan/trash_inside/inside/images",
-        "trash inside validation labels": base / "raw/dustpan/trash_inside/inside/labels",
-        "trash outside validation images": base / "raw/dustpan/trash_inside/outside/images",
-        "trash outside validation labels": base / "raw/dustpan/trash_inside/outside/labels",
     }
     missing = [f"{label}: {path}" for label, path in expected.items() if not path.is_dir()]
     train = _images(expected["train images"])
     val = _images(expected["validation images"])
-    inside = _images(expected["trash inside validation images"])
-    outside = _images(expected["trash outside validation images"])
     if not train:
         missing.append(f"no images found in {expected['train images']}")
     if not val:
         missing.append(f"no images found in {expected['validation images']}")
-    if not inside:
-        missing.append(f"no images found in {expected['trash inside validation images']}")
-    if not outside:
-        missing.append(f"no images found in {expected['trash outside validation images']}")
     if missing:
         raise DatasetNotReady(missing)
-    labels_by_stem: dict[str, Path] = {}
-    for split in ("train", "val"):
-        image_key = "train" if split == "train" else "validation"
-        image_dir = expected[f"{image_key} images"]
-        label_dir = expected[f"{image_key} labels"]
+    for image_key, label_key in (("train images", "train labels"), ("validation images", "validation labels")):
+        image_dir = expected[image_key]
+        label_dir = expected[label_key]
         for image_path in _images(image_dir):
             _validate_image(image_path)
             label_path = label_dir / f"{image_path.stem}.txt"
-            labels_by_stem[str(image_path.resolve())] = label_path
             if not label_path.is_file():
                 raise InvalidDataset(f"missing YOLO label for {image_path}: {label_path}")
             _validate_yolo_label(label_path)
@@ -74,15 +59,6 @@ def validate_yolo_dataset(config: Settings = settings) -> YoloDataset:
         extras = sorted(path.name for path in label_dir.glob("*.txt") if path.stem not in image_stems)
         if extras:
             raise InvalidDataset(f"labels without matching image in {label_dir}: {', '.join(extras[:10])}")
-    for kind, image_paths in (("inside", inside), ("outside", outside)):
-        image_dir = expected[f"trash {kind} validation images"]
-        label_dir = expected[f"trash {kind} validation labels"]
-        for image_path in image_paths:
-            _validate_image(image_path)
-            label_path = label_dir / f"{image_path.stem}.txt"
-            if not label_path.is_file():
-                raise InvalidDataset(f"missing YOLO label for trash-{kind} validation image {image_path}: {label_path}")
-            _validate_yolo_label(label_path, required_classes={0, 1})
     yaml_path = base / "processed/dustpan_dataset.yaml"
     yaml_path.parent.mkdir(parents=True, exist_ok=True)
     yaml_path.write_text(
@@ -92,7 +68,7 @@ def validate_yolo_dataset(config: Settings = settings) -> YoloDataset:
         "names:\n  0: dustpan\n  1: trash\n",
         encoding="utf-8",
     )
-    return YoloDataset(yaml_path, tuple(train), tuple(val), tuple(inside), tuple(outside))
+    return YoloDataset(yaml_path, tuple(train), tuple(val))
 
 
 def zone_reference_images(zone_id: str, checkpoint_id: str, kind: str = "reference", config: Settings = settings) -> list[Path]:

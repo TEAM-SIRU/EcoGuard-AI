@@ -46,7 +46,7 @@
 ### Zone Recognition
 
 - [x]  Visual Encoder Loader 구현
-- [x]  Masked Image Embedding 추출
+- [x]  Stair View Embedding extraction
 - [x]  L2 Normalize + Cosine Similarity
 - [x]  Zone/Checkpoint별 Reference Bank 생성
 - [x]  Reference Bank 저장/로드
@@ -58,7 +58,7 @@
 
 - [x]  PatchCore Builder 구조 구현
 - [x]  Zone/Checkpoint별 정상 데이터 Loader
-- [x]  공통 Mask/Resize/Normalize 적용
+- [x]  Shared Stair View preprocessing
 - [x]  Memory Bank 생성/저장/로드
 - [x]  Validation으로 anomaly threshold 결정하는 구조
 - [x]  자산 누락 시 ZONE_MODEL_NOT_READY 처리
@@ -79,10 +79,10 @@
 - [x]  Global Model Readiness Check
 - [x]  Zone Asset Readiness Check
 - [x]  Dustpan Early Return
-- [x]  Dustpan Mask
+- [x]  Split image into Stair View and Dustpan Crop
 - [x]  Zone Recognition Early Return
 - [x]  PatchCore 연결
-- [x]  여러 trash 중 하나라도 밖이면 FAIL
+- [x]  Run YOLO trash detection on Dustpan Crop
 - [x]  FinalEvaluator
 - [x]  PASS/FAIL JSON
 - [x]  시스템 오류 JSON
@@ -93,7 +93,7 @@
 ### Dustpan
 
 - [ ]  원본 수집
-- [ ]  dustpan/trash Bounding Box 라벨링
+- [ ]  Check trash on stairs with PatchCore anomaly detection
 - [ ]  Train / Validation / Test 분리
 
 ### Zone / Checkpoint
@@ -128,8 +128,8 @@
 - [ ]  잘못된 Zone
 - [ ]  잘못된 Checkpoint
 - [ ]  다른 장소
-- [ ]  trash 없음
-- [ ]  trash 하나 이상 외부
+- [ ]  Check trash on stairs with PatchCore anomaly detection
+- [ ]  Check trash on stairs with PatchCore anomaly detection
 - [ ]  청소구역 anomaly
 - [ ]  잘못된 이미지
 - [ ]  YOLO Weight 누락

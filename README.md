@@ -6,18 +6,12 @@
 
 ```mermaid
 flowchart TD
-    A[User: one smartphone photo + zone_id/checkpoint_id] --> B[FastAPI]
-    B --> C[Dustpan YOLO: dustpan and trash detection]
-    C --> D{Dustpan found?}
-    D -->|No| F[FAIL]
-    D -->|Yes| E[Mask dustpan region]
-    E --> G[Zone reference embedding validation]
-    G --> H{Requested zone recognized?}
-    H -->|No| F
-    H -->|Yes| I[PatchCore cleaning-state analysis]
-    I --> J[FinalEvaluator]
-    F --> J
-    J --> K[PASS/FAIL JSON]
+    A[One photo: stairs + dustpan] --> B[Full-image YOLO finds dustpan]
+    B --> C[Split into Stair View and Dustpan Crop]
+    C --> D[Zone Recognition on Stair View]
+    D --> E[PatchCore anomaly check on Stair View]
+    E --> F[YOLO trash check on Dustpan Crop]
+    F --> G[FinalEvaluator: PASS / FAIL]
 ```
 
 ## 개발 환경
@@ -49,9 +43,8 @@ uvicorn app.main:app --reload
 
 `/health`는 모델 자산이 없어도 200으로 서버 상태를 알리고, `models_ready`와 누락 자산을 함께 반환합니다. 청소 평가 요청은 JPEG/PNG 이미지 형식, 10 MB 업로드, 20 MP 픽셀 제한을 적용합니다.
 
-경로와 런타임 제한은 환경 변수로 조정할 수 있습니다: `ECOGUARD_ROOT`, `ECOGUARD_DATASET_DIR`, `ECOGUARD_MODEL_DIR`, `ECOGUARD_ZONE_REGISTRY`, `ECOGUARD_DUSTPAN_WEIGHT`, `ECOGUARD_ZONE_ENCODER_WEIGHT`, `ECOGUARD_MAX_UPLOAD_BYTES`, `ECOGUARD_MAX_IMAGE_PIXELS`, `ECOGUARD_MAX_INFERENCE_CONCURRENCY`, `ECOGUARD_IMAGE_SIZE`, `ECOGUARD_TRASH_INSIDE_THRESHOLD`.
+경로와 런타임 제한은 환경 변수로 조정할 수 있습니다: `ECOGUARD_ROOT`, `ECOGUARD_DATASET_DIR`, `ECOGUARD_MODEL_DIR`, `ECOGUARD_ZONE_REGISTRY`, `ECOGUARD_DUSTPAN_WEIGHT`, `ECOGUARD_ZONE_ENCODER_WEIGHT`, `ECOGUARD_MAX_UPLOAD_BYTES`, `ECOGUARD_MAX_IMAGE_PIXELS`, `ECOGUARD_MAX_INFERENCE_CONCURRENCY`, `ECOGUARD_IMAGE_SIZE`.
 
-Trash-Inside threshold는 Dustpan Build에서 별도의 `inside`/`outside` validation 이미지로 계산해 `models/global/dustpan/metadata.json`에 저장합니다. `ECOGUARD_TRASH_INSIDE_THRESHOLD`가 있으면 생성된 threshold보다 우선 적용됩니다. 검증 데이터나 metadata가 없고 환경 변수도 설정되지 않으면 API는 임의 판정을 하지 않고 `MODEL_NOT_READY`를 반환합니다.
 
 ## Zone Registry
 
@@ -74,30 +67,26 @@ Threshold는 Training Pipeline에서 분리된 positive/negative validation 점�
 
 ## Dataset 배치
 
-이미지는 JPG/JPEG/PNG로 준비하고, split 간 같은 촬영 세션이 섞이지 않도록 나눕니다. 아래 데이터는 나중에 사용자가 직접 준비해야 하며 현재 포함되어 있지 않습니다.
+이미지는 JPG/JPEG/PNG로 준비하고, train/validation 간 같은 촬영 세션은 섞지 않습니다. Zone/PatchCore에는 쓰레받이가 없는 계단 사진도 넣을 수 있습니다. 쓰레받이가 사진에 보이면 빌드 때 검출해 가리고, 추론 때도 같은 규칙을 씁니다.
 
 ```text
-datasets/
-├── raw/
-│   ├── dustpan/
-│   │   ├── images/{train,val}/<image>.jpg
-│   │   ├── labels/{train,val}/<image>.txt
-│   │   └── trash_inside/{inside,outside}/{images,labels}/<image>.(jpg|txt)
-│   ├── zones/<zone_id>/<checkpoint_id>/
-│   │   ├── reference/<image>.jpg
-│   │   └── validation/positive/<image>.jpg
-│   ├── zones/negative/<zone_id>/<checkpoint_id>/<image>.jpg
-│   └── patchcore/<zone_id>/<checkpoint_id>/
-│       ├── train/normal/<image>.jpg
-│       └── val/{normal,anomaly}/<image>.jpg
-├── annotations/       # 별도 Annotation 자료 보관
-├── splits/            # 촬영 세션 단위 분할 manifest
-└── processed/         # 검증된 YOLO dataset YAML 등 자동 생성 자료
+datasets/raw/
+├── dustpan/
+│   ├── images/{train,val}/<image>.jpg
+│   └── labels/{train,val}/<image>.txt
+├── zones/<zone_id>/<checkpoint_id>/
+│   ├── reference/<image>.jpg
+│   └── validation/positive/<image>.jpg
+├── zones/negative/<zone_id>/<checkpoint_id>/<image>.jpg
+└── patchcore/<zone_id>/<checkpoint_id>/
+    ├── train/normal/<image>.jpg
+    └── val/{normal,anomaly}/<image>.jpg
 ```
 
-일반 Dustpan YOLO label은 이미지와 같은 basename의 UTF-8 `.txt` 파일이며, 각 줄은 `class_id x_center y_center width height`의 normalized 값입니다(0=dustpan, 1=trash). 빈 파일은 객체 없는 사진에 허용됩니다. 안/밖 validation label에는 두 클래스 모두 포함해야 합니다. 폴더 이름은 사진의 실제 정답 검수 결과를 나타냅니다. 이미지와 label 폴더는 Ultralytics의 images/labels 변환 규칙을 따릅니다.
+Dustpan YOLO label은 이미지와 같은 basename의 UTF-8 `.txt`이며 각 줄은 `class_id x_center y_center width height` normalized 값입니다(0=dustpan, 1=trash). 빈 label은 객체 없는 YOLO 학습 사진에 허용됩니다.
 
-Zone negative는 요청된 Checkpoint와 다른 Zone/Checkpoint 또는 미등록 장소 사진이어야 합니다. Zone reference와 positive/negative validation, PatchCore 이미지에는 Dustpan YOLO가 탐지한 동일 쓰레받이 bbox Mask를 적용합니다. PatchCore Train에는 정상 사진만 넣습니다.
+Zone reference/validation과 PatchCore 사진은 계단 장면입니다. Zone negative는 다른 Zone/Checkpoint 또는 미등록 장소여야 합니다. PatchCore Train에는 정상 사진, Validation/Test에는 정상과 이상 사진이 필요합니다. 추론 사진 한 장에는 계단과 쓰레받이가 함께 있어야 합니다. 코드가 전체 사진에서 pan을 검출해 Stair View에서는 가리고, Dustpan Crop은 YOLO trash 검사에 사용합니다.
+
 
 ## Training / Build
 
@@ -121,5 +110,3 @@ python -m pytest
 ## 범위 및 OPEN ISSUE
 
 현재 구현 범위는 `TASK.md`의 Phase 1–3입니다. 요청에 적힌 `TASKS.md`는 없고 `TASK.md`에 Phase 정의가 있습니다. `docs/AI_CONVENTIONS.md`도 아직 없습니다. 실제 Dataset, Dustpan weight, 로컬 ResNet18 weight, Zone Reference Bank, PatchCore Memory Bank가 없어 실제 학습과 AI 추론은 실행하지 않았습니다.
-
-현재 README에 기재한 구체적인 Dataset 경로와 Trash-Inside validation split은 상위 SPEC에 상세 규격이 없어 이번 구현을 위해 정한 입력 규약입니다. 실제 데이터 준비(Phase 4) 전에 이 폴더/분할 규칙을 확인해야 합니다. Trash-Inside threshold의 validation balanced accuracy는 metadata에 기록되지만 운영 승인 기준은 정해지지 않았습니다.

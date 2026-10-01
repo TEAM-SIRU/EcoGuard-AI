@@ -18,8 +18,6 @@ class FinalEvaluator:
                 reasons.append("ZONE_ANOMALY_DETECTED")
             if not analyses.get("trash_detected", False):
                 reasons.append("TRASH_NOT_FOUND_IN_DUSTPAN")
-            if analyses.get("trash_outside", False):
-                reasons.append("TRASH_OUTSIDE_DUSTPAN")
         passed = not reasons
         return CleaningResult(
             decision=Decision.PASS if passed else Decision.FAIL,

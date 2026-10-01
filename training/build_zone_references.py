@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from app.ai.dustpan_yolo import load_dustpan_detector
-from app.ai.preprocessing import mask_image_with_dustpan
+from app.ai.preprocessing import stair_view_for_build
 from app.ai.zone_recognition import create_reference_bank, load_encoder, save_reference_bank, validate_reference_threshold
 from app.core.config import Settings, settings
 from app.services.zone_registry import CheckpointAssets
@@ -34,7 +34,7 @@ def build_zone_reference_assets(cp: CheckpointAssets, encoder, config: Settings 
                              values={"reference_bank": str(output), "zone_threshold": threshold, "validation": validation,
                                      "encoder": "torchvision.resnet18", "encoder_weights": "ResNet18_Weights.IMAGENET1K_V1",
                                      "encoder_weight_file": str(config.zone_encoder_weight_path),
-                                     "preprocessing": {"mask": "outside_dustpan_black", "image_size": config.image_size, "mean": config.imagenet_mean, "std": config.imagenet_std},
+                                     "preprocessing": {"stair_view": "dustpan_bbox_black_when_detected", "image_size": config.image_size, "mean": config.imagenet_mean, "std": config.imagenet_std},
                                      "package_versions": package_versions("torch", "torchvision"),
                                      "embedding_dim": int(embeddings.shape[1])})
     return {"component": "zone", "asset": str(output), "threshold": threshold}
@@ -42,5 +42,4 @@ def build_zone_reference_assets(cp: CheckpointAssets, encoder, config: Settings 
 
 def _mask_image(path: Path, detector) -> Image.Image:
     with Image.open(path) as image:
-        masked, _ = mask_image_with_dustpan(image.convert("RGB"), detector)
-        return masked
+        return stair_view_for_build(image.convert("RGB"), detector)

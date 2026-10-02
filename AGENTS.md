@@ -32,8 +32,10 @@ EcoGuard AI는 스마트폰 사진 **1장**으로 지정된 청소구역/Checkpo
 - PatchCore는 `zone_id + checkpoint_id`별 정상 데이터를 사용해 Memory Bank를 생성한다.
 - 입력 사진에서 Dustpan YOLO로 쓰레받이를 찾은 뒤 Stair View(쓰레받이 bbox를 가린 전체 장면)와 Dustpan Crop(bbox crop)을 분리한다.
 - Zone Recognition/PatchCore는 Stair View만 처리하고, Dustpan Crop의 trash 검사는 Dustpan YOLO가 처리한다.
-- 학습/빌드와 추론은 동일한 Stair View Mask/Resize/Normalize 규칙을 사용한다. 계단 학습 사진은 쓰레받이가 없어도 허용한다.
-- 학습/빌드와 추론의 Mask/Resize/Normalize 규칙은 동일하게 유지한다.
+- Dustpan YOLO and PatchCore use separate training pipelines. The PatchCore builder consumes stair-only photos and never loads Dustpan YOLO.
+- Serving creates the black-masked Stair View. PatchCore excludes the dustpan bbox and a 32px resized-image context from its anomaly score.
+- PatchCore train/validation/serving share Resize/Normalize and feature-grid rules. Zone Recognition uses the masked Stair View.
+- The explicit `--normal-only-threshold` option creates a provisional PatchCore threshold from the maximum held-out normal score and records anomaly detection as unvalidated until real anomaly samples are evaluated.
 - 개별 Zone을 Python `if/elif`로 하드코딩하지 않는다. Zone Registry와 데이터/모델 자산으로 확장한다.
 - 모델 모듈은 분석 결과만 반환하고 최종 PASS/FAIL은 `FinalEvaluator`가 결정한다.
 - Training 코드와 API Serving 코드를 분리한다.

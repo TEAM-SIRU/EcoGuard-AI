@@ -23,10 +23,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--zone-id")
     parser.add_argument("--checkpoint-id")
     parser.add_argument("--force", action="store_true", help="replace generated assets")
+    parser.add_argument("--normal-only-threshold", action="store_true", help="provisional PatchCore threshold from held-out normal photos only; anomalies remain unvalidated")
     return parser
 
 
-def run(component: str, zone_id: str | None = None, checkpoint_id: str | None = None, force: bool = False) -> dict:
+def run(component: str, zone_id: str | None = None, checkpoint_id: str | None = None, force: bool = False, normal_only_threshold: bool = False) -> dict:
+    if normal_only_threshold and component != "patchcore":
+        raise ValueError("--normal-only-threshold is supported only with --component patchcore")
     if checkpoint_id and not zone_id:
         raise ValueError("--checkpoint-id requires --zone-id")
     registry = ZoneRegistry.load(settings.zone_registry_path, settings)
@@ -61,10 +64,8 @@ def run(component: str, zone_id: str | None = None, checkpoint_id: str | None = 
                 if not force and _patchcore_assets_ready(cp):
                     outputs.append({"component": "patchcore", "status": "already_built", "asset": str(cp.patchcore / "memory_bank.npz")})
                 else:
-                    validate_registry_datasets(registry, "patchcore", cp.zone_id, cp.checkpoint_id)
-                    if detector is None:
-                        detector = load_dustpan_detector(settings)
-                    outputs.append(build_patchcore_assets(cp, settings, force=force, detector=detector))
+                    validate_registry_datasets(registry, "patchcore", cp.zone_id, cp.checkpoint_id, normal_only_threshold=normal_only_threshold)
+                    outputs.append(build_patchcore_assets(cp, settings, force=force, normal_only_threshold=normal_only_threshold))
     return {"status": "completed", "component": component, "results": outputs}
 
 
@@ -96,7 +97,9 @@ def _patchcore_assets_ready(cp) -> bool:
     if not isinstance(threshold, (int, float)) or not math.isfinite(float(threshold)) or float(threshold) < 0:
         return False
     try:
-        from app.ai.zone_anomaly import load_memory_bank
+        from app.ai.zone_anomaly import PATCHCORE_FEATURE_VERSION, load_memory_bank
+        if values.get("feature_version") != PATCHCORE_FEATURE_VERSION:
+            return False
         load_memory_bank(cp.patchcore / "memory_bank.npz")
         return True
     except (OSError, ValueError, KeyError):
@@ -106,7 +109,7 @@ def _patchcore_assets_ready(cp) -> bool:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        result = run(args.component, args.zone_id, args.checkpoint_id, args.force)
+        result = run(args.component, args.zone_id, args.checkpoint_id, args.force, args.normal_only_threshold)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except DatasetNotReady as exc:

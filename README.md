@@ -9,7 +9,7 @@ flowchart TD
     A[One photo: stairs + dustpan] --> B[Full-image YOLO finds dustpan]
     B --> C[Split into Stair View and Dustpan Crop]
     C --> D[Zone Recognition on Stair View]
-    D --> E[PatchCore anomaly check on Stair View]
+    D --> E[PatchCore on Stair View; dustpan feature ROI ignored]
     E --> F[YOLO trash check on Dustpan Crop]
     F --> G[FinalEvaluator: PASS / FAIL]
 ```
@@ -67,7 +67,7 @@ Threshold는 Training Pipeline에서 분리된 positive/negative validation 점�
 
 ## Dataset 배치
 
-이미지는 JPG/JPEG/PNG로 준비하고, train/validation 간 같은 촬영 세션은 섞지 않습니다. Zone/PatchCore에는 쓰레받이가 없는 계단 사진도 넣을 수 있습니다. 쓰레받이가 사진에 보이면 빌드 때 검출해 가리고, 추론 때도 같은 규칙을 씁니다.
+Images may be JPG/JPEG/PNG. Keep capture sessions separate between train and validation. Zone reference builds mask a detected pan with Dustpan YOLO. PatchCore training uses stair-only photos directly and does not require a trained dustpan model.
 
 ```text
 datasets/raw/
@@ -85,15 +85,22 @@ datasets/raw/
 
 Dustpan YOLO label은 이미지와 같은 basename의 UTF-8 `.txt`이며 각 줄은 `class_id x_center y_center width height` normalized 값입니다(0=dustpan, 1=trash). 빈 label은 객체 없는 YOLO 학습 사진에 허용됩니다.
 
-Zone reference/validation과 PatchCore 사진은 계단 장면입니다. Zone negative는 다른 Zone/Checkpoint 또는 미등록 장소여야 합니다. PatchCore Train에는 정상 사진, Validation/Test에는 정상과 이상 사진이 필요합니다. 추론 사진 한 장에는 계단과 쓰레받이가 함께 있어야 합니다. 코드가 전체 사진에서 pan을 검출해 Stair View에서는 가리고, Dustpan Crop은 YOLO trash 검사에 사용합니다.
+Zone reference/validation and PatchCore images show the stair scene. Zone negative photos must show another or unregistered place. PatchCore trains on normal photos and ordinarily validates with held-out normal plus real anomaly photos. If real anomaly photos are not available, use `--normal-only-threshold` only as a provisional threshold: it uses the highest held-out normal score and does not validate anomaly detection. PatchCore training runs independently from Dustpan YOLO. At serving, the detected pan bbox and a 32px context area are excluded from PatchCore anomaly scoring.
 
+
+## Independent training components
+
+- `--component patchcore` builds only the per-checkpoint stair anomaly model from `datasets/raw/patchcore/<zone>/<checkpoint>/`. It uses the local ResNet18 encoder and does not load `models/global/dustpan/best.pt`.
+- `--component dustpan` separately trains the scratch YOLO detector from `datasets/raw/dustpan/` and its labels.
+- PatchCore validation with real anomalies reports balanced accuracy and score ranges. Normal-only mode records `anomaly_detection_validated: false`; replace that provisional threshold after adding real, held-out anomaly photos to `val/anomaly`.
 
 ## Training / Build
 
 ```powershell
 python -m training.run_pipeline --component dustpan
 python -m training.run_pipeline --component zone --zone-id main_stair_a --checkpoint-id f1_f2
-python -m training.run_pipeline --component patchcore --zone-id main_stair_a --checkpoint-id f1_f2
+python -m training.run_pipeline --component patchcore --zone-id zone_a --checkpoint-id stair_1
+python -m training.run_pipeline --component patchcore --zone-id zone_b --checkpoint-id stair_1 --normal-only-threshold
 python -m training.run_pipeline --component all
 ```
 
@@ -109,4 +116,4 @@ python -m pytest
 
 ## 범위 및 OPEN ISSUE
 
-현재 구현 범위는 `TASK.md`의 Phase 1–3입니다. 요청에 적힌 `TASKS.md`는 없고 `TASK.md`에 Phase 정의가 있습니다. `docs/AI_CONVENTIONS.md`도 아직 없습니다. 실제 Dataset, Dustpan weight, 로컬 ResNet18 weight, Zone Reference Bank, PatchCore Memory Bank가 없어 실제 학습과 AI 추론은 실행하지 않았습니다.
+Dataset and model files are local ignored assets and are not checked into Git. The current workspace has a built local PatchCore asset for A/stair_1. Full API inference still requires a trained Dustpan YOLO weight and Zone Reference Bank.

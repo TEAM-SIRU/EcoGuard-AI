@@ -13,3 +13,8 @@ models/global/zone_encoder/**
 models/zones/**
 !datasets/**/.gitkeep
 !models/**/.gitkeep
+# Root-level user supplied A-D training photo folders
+/*A_*_*/
+/*B_*_*/
+/*C_*_*/
+/*D_*_*/

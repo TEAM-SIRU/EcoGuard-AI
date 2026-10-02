@@ -57,10 +57,12 @@
 ### PatchCore
 
 - [x]  PatchCore Builder 구조 구현
+- [x]  PatchCore stair-only builder separated from Dustpan YOLO training
 - [x]  Zone/Checkpoint별 정상 데이터 Loader
 - [x]  Shared Stair View preprocessing
 - [x]  Memory Bank 생성/저장/로드
 - [x]  Validation으로 anomaly threshold 결정하는 구조
+- [x]  Explicit normal-only provisional PatchCore threshold; anomaly detection is marked unvalidated
 - [x]  자산 누락 시 ZONE_MODEL_NOT_READY 처리
 
 ### Training Orchestrator

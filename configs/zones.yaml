@@ -1,1 +1,44 @@
-zones: {}
+zones:
+  zone_a:
+    display_name: Zone A
+    active: true
+    checkpoints:
+      stair_1:
+        reference_bank: models/zones/zone_a/stair_1/reference_embeddings
+        patchcore: models/zones/zone_a/stair_1/patchcore
+        metadata_path: models/zones/zone_a/stair_1/metadata.json
+        zone_threshold: null
+        anomaly_threshold: null
+
+  zone_b:
+    display_name: Cleaning Zone B
+    active: true
+    checkpoints:
+      stair_1:
+        reference_bank: models/zones/zone_b/stair_1/reference_embeddings
+        patchcore: models/zones/zone_b/stair_1/patchcore
+        metadata_path: models/zones/zone_b/stair_1/metadata.json
+        zone_threshold: null
+        anomaly_threshold: null
+
+  zone_c:
+    display_name: Cleaning Zone C
+    active: true
+    checkpoints:
+      stair_1:
+        reference_bank: models/zones/zone_c/stair_1/reference_embeddings
+        patchcore: models/zones/zone_c/stair_1/patchcore
+        metadata_path: models/zones/zone_c/stair_1/metadata.json
+        zone_threshold: null
+        anomaly_threshold: null
+
+  zone_d:
+    display_name: Cleaning Zone D
+    active: true
+    checkpoints:
+      stair_1:
+        reference_bank: models/zones/zone_d/stair_1/reference_embeddings
+        patchcore: models/zones/zone_d/stair_1/patchcore
+        metadata_path: models/zones/zone_d/stair_1/metadata.json
+        zone_threshold: null
+        anomaly_threshold: null

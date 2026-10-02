@@ -94,7 +94,7 @@ def patchcore_images(zone_id: str, checkpoint_id: str, split: str, kind: str, co
     return images
 
 
-def validate_registry_datasets(registry: ZoneRegistry, component: str, zone_id: str | None, checkpoint_id: str | None) -> None:
+def validate_registry_datasets(registry: ZoneRegistry, component: str, zone_id: str | None, checkpoint_id: str | None, normal_only_threshold: bool = False) -> None:
     checkpoints = registry.checkpoints(zone_id)
     if not checkpoints:
         raise DatasetNotReady(["no active Zone/Checkpoint entries exist in the registry"] )
@@ -111,7 +111,10 @@ def validate_registry_datasets(registry: ZoneRegistry, component: str, zone_id: 
             except DatasetNotReady as exc:
                 missing.extend(exc.missing)
         if component in {"patchcore", "all"}:
-            for split, kind in (("train", "normal"), ("val", "normal"), ("val", "anomaly")):
+            required = [("train", "normal"), ("val", "normal")]
+            if not normal_only_threshold:
+                required.append(("val", "anomaly"))
+            for split, kind in required:
                 try:
                     patchcore_images(cp.zone_id, cp.checkpoint_id, split, kind)
                 except DatasetNotReady as exc:

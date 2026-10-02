@@ -6,8 +6,14 @@ import numpy as np
 from PIL import Image
 
 from app.ai.zone_recognition import l2_normalize
+from app.ai.region_masker import BoundingBox, validate_bbox
 from app.ai.preprocessing import imagenet_normalized_tensor
 from app.core.config import Settings, settings
+
+
+PATCHCORE_FEATURE_VERSION = 2
+PATCHCORE_GRID_SIZE = 14
+PATCHCORE_EXCLUSION_MARGIN_PIXELS = 32
 
 
 class PatchCoreFeatures:
@@ -23,15 +29,36 @@ class PatchCoreFeatures:
         state = {key: value for key, value in state.items() if not key.startswith("fc.")}
         model.load_state_dict(state, strict=False)
         self._torch = torch
-        self._model = torch.nn.Sequential(*list(model.children())[:-2]).eval()
+        self._model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1).eval()
+        self._functional = torch.nn.functional
         self.image_size = image_size
+        self.grid_size = PATCHCORE_GRID_SIZE
 
-    def extract(self, image: Image.Image) -> np.ndarray:
+    def extract(self, image: Image.Image, ignored_bbox: BoundingBox | None = None) -> np.ndarray:
         torch = self._torch
-        tensor = imagenet_normalized_tensor(image, self.image_size)
+        rgb = image.convert("RGB")
+        tensor = imagenet_normalized_tensor(rgb, self.image_size)
         with torch.inference_mode():
-            feature = self._model(tensor).squeeze(0).permute(1, 2, 0).reshape(-1, 512).cpu().numpy()
-        return np.stack([l2_normalize(row) for row in feature]).astype(np.float32)
+            feature_map = self._model(tensor)
+            feature_map = self._functional.adaptive_avg_pool2d(feature_map, (self.grid_size, self.grid_size))
+            feature_grid = feature_map.squeeze(0).permute(1, 2, 0).cpu().numpy()
+
+        valid = np.ones((self.grid_size, self.grid_size), dtype=bool)
+        if ignored_bbox is not None:
+            validate_bbox(ignored_bbox, *rgb.size)
+            margin = PATCHCORE_EXCLUSION_MARGIN_PIXELS
+            left = ignored_bbox.x1 * self.image_size / rgb.width - margin
+            right = ignored_bbox.x2 * self.image_size / rgb.width + margin
+            top = ignored_bbox.y1 * self.image_size / rgb.height - margin
+            bottom = ignored_bbox.y2 * self.image_size / rgb.height + margin
+            centers = (np.arange(self.grid_size, dtype=np.float32) + 0.5) * self.image_size / self.grid_size
+            excluded_x = (centers >= left) & (centers <= right)
+            excluded_y = (centers >= top) & (centers <= bottom)
+            valid[np.ix_(excluded_y, excluded_x)] = False
+        selected = feature_grid[valid]
+        if not len(selected):
+            raise ValueError("dustpan exclusion removed every PatchCore feature")
+        return np.stack([l2_normalize(row) for row in selected]).astype(np.float32)
 
 
 def build_memory_bank(feature_extractor: PatchCoreFeatures, images: list[Image.Image]) -> np.ndarray:

@@ -86,7 +86,7 @@ Dustpan YOLO (Dustpan Crop) → trash 없음 시 FAIL
 FinalEvaluator → PASS / FAIL JSON
 ```
 
-요청 입력은 사진 한 장이다. 쓰레받이는 전체 사진에서 먼저 찾는다. Zone Recognition과 PatchCore에는 쓰레받이 bbox를 검정으로 가린 계단 장면을, trash 검출에는 쓰레받이 bbox crop을 별도로 전달한다. Zone/PatchCore 학습 사진은 계단만 보여도 된다. 학습 사진에 쓰레받이가 보이면 검출 후 같은 방식으로 가린다.
+At serving, full-image YOLO finds the dustpan. Zone Recognition receives the black-masked Stair View. PatchCore receives the same view and excludes the dustpan bbox plus its 32px resized-image context from anomaly scoring. PatchCore training and validation use stair-only images and do not load Dustpan YOLO. Trash detection uses the separate Dustpan Crop.
 
 # 4. Dustpan YOLO
 
@@ -125,17 +125,17 @@ python -m training.run_pipeline --component dustpan
 
 ---
 
-# 5. 이미지 영역 분리
+# 5. Image Region Split
 
-Full-image Dustpan YOLO가 검출한 쓰레받이 Bounding Box로 두 입력을 만든다.
+At serving, full-image Dustpan YOLO detects the pan and creates two views:
 
-- Stair View: 전체 크기/구도를 유지하고 쓰레받이 bbox 영역만 검정으로 가린 장면.
-- Dustpan Crop: 쓰레받이 bbox만 자른 이미지.
-- Zone Recognition과 PatchCore는 Stair View만 처리한다.
-- 두 번째 YOLO 검사는 Dustpan Crop만 처리한다.
-- Zone/PatchCore 빌드 데이터는 쓰레받이가 없는 계단 사진도 허용한다. 쓰레받이가 검출되면 동일하게 가린다.
-- 추론 사진에는 계단과 쓰레받이가 함께 보여야 하며, 쓰레받이 검출은 필수다.
-- 학습/추론의 Stair View Mask/Resize/Normalize 규칙은 동일하다.
+- Stair View: preserve the full image and black out the detected dustpan bbox.
+- Dustpan Crop: crop the detected dustpan bbox for trash detection.
+- Zone Recognition processes the masked Stair View.
+- PatchCore processes that view and excludes feature cells overlapping the bbox plus a 32px context margin.
+- PatchCore training uses stair-only images directly and never loads Dustpan YOLO.
+- Resize/Normalize and PatchCore feature-grid processing are shared between build and serving.
+- Serving still requires one image containing both stairs and a detectable dustpan.
 
 
 # 6. Zone Recognition
@@ -156,25 +156,26 @@ Stair View → Encoder → L2-normalized Embedding
 
 # 7. PatchCore
 
-Stair View에서 요청 장소의 청소 상태가 정상과 다른지 탐지한다. 각 `zone_id + checkpoint_id`별로 별도 Memory Bank와 threshold를 생성한다.
+PatchCore learns normal stair appearance per `zone_id + checkpoint_id` from stair-only photos. Its builder is independent from Dustpan YOLO. At serving, it receives the black-masked Stair View and ignores feature cells covering the dustpan bbox plus a 32px context margin. Each checkpoint gets its own Memory Bank and threshold.
 
-- Train: 정상 계단 사진만
-- Validation/Test: 정상 사진과 쓰레기 등 이상 사진
-- 쓰레받이는 계단 데이터에 없어도 된다. 검출되면 bbox 영역을 가린다.
+- Train: normal stair photos only.
+- Validation/Test: held-out normal photos and real anomalous stair photos by default.
+- If the user explicitly accepts provisional calibration before anomaly photos exist, `--normal-only-threshold` uses the maximum held-out normal score and records anomaly detection as unvalidated.
+- PatchCore training and validation do not need Dustpan YOLO or pan images.
 
 ```
-Normal train stairs → Shared stair-view preprocessing
-→ Resize/Normalize → Feature extraction
-→ Per-Checkpoint Memory Bank → Normal/anomaly validation
-→ Anomaly threshold → Assets + metadata
+Normal stair photos -> Shared resize/normalize -> ResNet18 layer-1 feature grid
+-> Per-Checkpoint Memory Bank -> Normal/anomaly validation
+-> Anomaly threshold -> Assets + metadata
 ```
 
 ```bash
-python -m training.run_pipeline --component patchcore --zone-id main_stair_a --checkpoint-id f1_f2
+python -m training.run_pipeline --component patchcore --zone-id zone_a --checkpoint-id stair_1
+python -m training.run_pipeline --component patchcore --zone-id zone_b --checkpoint-id stair_1 --normal-only-threshold
 ```
 
-- anomaly_score <= threshold → 정상
-- anomaly_score > threshold → ZONE_ANOMALY_DETECTED
+- anomaly_score <= threshold -> normal
+- anomaly_score > threshold -> ZONE_ANOMALY_DETECTED
 
 
 # 8. Zone Registry
@@ -219,7 +220,7 @@ python -m training.run_pipeline --component all
 3. YOLO Training 또는 기존 유효 Weight 사용
 4. Registry Zone/Checkpoint 순회
 5. Reference Bank 생성
-6. PatchCore Memory Bank 생성
+6. Independent PatchCore Memory Bank build from stair-only data (no Dustpan YOLO dependency)
 7. Validation
 8. Threshold 저장
 9. Metadata 저장
@@ -440,3 +441,5 @@ HTTP:
 - **가짜 Weight나 실제처럼 보이는 가짜 모델 결과는 생성하지 않음**
 
 실제 데이터가 준비되면 코드를 다시 작성하지 않고 Dataset을 넣고 Training Pipeline을 실행한다.
+
+- PatchCore excludes the pan bbox plus a 32px context margin at serving; validate that margin with full-scene images because nearby stair pixels are not scored.

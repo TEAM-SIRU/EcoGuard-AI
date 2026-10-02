@@ -6,7 +6,7 @@ from PIL import Image
 
 from app.ai.dustpan_yolo import DustpanDetector
 from app.ai.preprocessing import split_image_regions
-from app.ai.zone_anomaly import anomaly_score, load_memory_bank
+from app.ai.zone_anomaly import PATCHCORE_FEATURE_VERSION, anomaly_score, load_memory_bank
 from app.ai.zone_recognition import load_reference_bank, max_reference_similarity
 from app.core.config import Settings, settings
 from app.schemas.cleaning import CleaningResult
@@ -49,6 +49,8 @@ class CleaningInference:
                 raise ValueError("reference bank or PatchCore memory bank is missing")
             if zone.get("zone_threshold") is None or patch.get("anomaly_threshold") is None:
                 raise ValueError("zone/anomaly threshold is missing")
+            if patch.get("feature_version") != PATCHCORE_FEATURE_VERSION:
+                raise ValueError("PatchCore feature version is missing or incompatible")
             zone_threshold = float(zone["zone_threshold"])
             anomaly_threshold = float(patch["anomaly_threshold"])
             if not math.isfinite(zone_threshold) or not -1 <= zone_threshold <= 1:
@@ -97,7 +99,7 @@ class CleaningInference:
                                            failures=["ZONE_NOT_RECOGNIZED"])
 
         try:
-            score = anomaly_score(_patchcore_features(stair_view, self.config, self.encoder), memory_bank)
+            score = anomaly_score(_patchcore_features(stair_view, self.config, self.encoder, dustpan.bbox), memory_bank)
         except Exception as exc:
             raise system_error("ZONE_MODEL_NOT_READY", "PatchCore memory bank could not be used", {"reason": str(exc)}) from exc
         if score > anomaly_threshold:
@@ -124,9 +126,9 @@ class CleaningInference:
                                                  "trash_input": "dustpan_crop"})
 
 
-def _patchcore_features(image: Image.Image, config: Settings, encoder):
-    # Reuse the same local ResNet weights but expose its spatial layer-4 map.
+def _patchcore_features(image: Image.Image, config: Settings, encoder, ignored_bbox=None):
+    # Reuse the local ResNet weights and the same pooled layer-1 grid as PatchCore training.
     from app.ai.zone_anomaly import PatchCoreFeatures
     if not hasattr(encoder, "patchcore_features"):
         encoder.patchcore_features = PatchCoreFeatures(config.zone_encoder_weight_path, config.image_size)
-    return encoder.patchcore_features.extract(image)
+    return encoder.patchcore_features.extract(image, ignored_bbox=ignored_bbox)

@@ -24,6 +24,33 @@ def calibrate_threshold(low_class_scores: list[float], high_class_scores: list[f
     }
 
 
+def calibrate_normal_threshold(normal_scores: list[float]) -> tuple[float, dict]:
+    """Set a provisional threshold at the highest held-out normal score.
+
+    This keeps every supplied normal validation sample below the anomaly
+    threshold, but says nothing about anomaly recall until real anomalies are
+    evaluated.
+    """
+    if not normal_scores:
+        raise ValueError("normal validation examples are required")
+    values = [float(value) for value in normal_scores]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("validation scores must be finite")
+    threshold = max(values)
+    return threshold, {
+        "calibration_mode": "normal_only_provisional",
+        "threshold_rule": "maximum_held_out_normal_score",
+        "balanced_accuracy": None,
+        "anomaly_detection_validated": False,
+        "high_class_comparison": ">",
+        "low_class_count": len(values),
+        "high_class_count": 0,
+        "low_class_range": [min(values), max(values)],
+        "high_class_range": None,
+        "normal_validation_pass_rate": 1.0,
+    }
+
+
 def _balanced_accuracy(low_class: list[float], high_class: list[float], threshold: float, high_inclusive: bool = False) -> float:
     if high_inclusive:
         low_correct = sum(score < threshold for score in low_class) / len(low_class)

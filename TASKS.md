@@ -8,6 +8,7 @@
 - [x] Gemini Service 및 검사 프롬프트 구현
 - [x] 시스템 오류와 청소 판정 결과 분리
 - [x] Gemini 호출을 Mock한 테스트 작성
+- [x] 쓰레받이와 수거한 쓰레기를 함께 인증하도록 최종 판정 정책 통일
 - [x] 테스트 실행 결과 확인
 - [x] main 변경사항 commit 및 가능한 경우 GitHub push
 

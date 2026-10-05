@@ -15,11 +15,11 @@ def valid_pass_assessment() -> CleaningAssessment:
         decision="PASS",
         image_assessable=True,
         dustpan_detected=True,
-        trash_detected=False,
-        trash_inside_dustpan=False,
+        trash_detected=True,
+        trash_inside_dustpan=True,
         cleaning_area_clean=True,
         needs_review=False,
-        reasons=["청소구역이 깨끗하고 쓰레받이가 보입니다."],
+        reasons=["쓰레받이 안에 쓰레기가 있고 청소구역이 깨끗합니다."],
     )
 
 

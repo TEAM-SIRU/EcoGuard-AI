@@ -10,14 +10,24 @@
 
 Gemini는 사진 판독 가능 여부, 쓰레받이와 쓰레기의 존재 여부, 쓰레받이 안에 쓰레기가 있는지, 청소구역이 깨끗한지, 사람의 재확인이 필요한지를 평가한다.
 
+## 최종 판정 정책
+
+- PASS는 image_assessable, dustpan_detected, trash_detected, trash_inside_dustpan, cleaning_area_clean이 모두 true일 때만 허용한다.
+- 판정 가능한 사진에서 위 네 항목 중 하나라도 false이면 FAIL이다.
+- 사진이 판정 불가능하거나 가림, 흐림, 어두움 등으로 필수 조건 하나라도 확실히 판단할 수 없으면 image_assessable=false, decision=REVIEW, needs_review=true로 반환한다.
+- 쓰레기가 보이지 않으면 trash_detected=false이므로 PASS가 될 수 없다.
+- Pydantic 검증기는 모델이 반환한 decision과 필드의 조합이 이 규칙과 다르면 구조화 응답 오류로 처리한다.
+
 ## 규칙
 
 - 직접 AI 모델을 학습하거나 모델 Weight를 만들지 않는다.
 - YOLO, PatchCore, Reference Embedding, Zone Recognition 학습, Dataset 수집 및 Training Pipeline은 V2 범위다.
 - Gemini API 호출은 service layer에서만 한다. 공식 Google Gen AI Python SDK와 Pydantic Structured Output을 사용한다.
-- API Key와 모델명은 GEMINI_API_KEY, GEMINI_MODEL 환경변수로 설정한다. 비밀 키를 코드나 Git에 넣지 않는다.
-- zone_id와 checkpoint_id는 요청과 응답에 기록하는 Metadata다. Gemini에 보내거나 실제 장소 검증에 사용하지 않는다.
-- user_id는 선택 Metadata이며 AI 판정에 사용하지 않는다.
+- API Key와 모델 우선순위는 GEMINI_API_KEY, GEMINI_MODEL, GEMINI_FALLBACK_MODELS 환경변수로 설정한다. 비밀 키를 코드나 Git에 넣지 않는다.
+- 기본 V1 구성은 gemini-3.5-flash-lite와 gemini-3.1-flash-lite 두 모델만 사용하고, API 요청마다 시작 모델을 번갈아 선택한다.
+- Gemini HTTP 429 응답이면 다른 Lite 모델로 전환한다. HTTP 503 응답이면 같은 모델을 한 번 재시도한 뒤 다른 Lite 모델로 전환한다.
+- zone_id만 V1 요청과 응답에 기록하는 Metadata다. Gemini에 보내거나 실제 장소 검증에 사용하지 않는다.
+- checkpoint_id와 user_id는 V1 요청과 응답에 포함하지 않는다. 별도 인증 또는 장소 조회 연동이 없는 상태에서 이 값을 추정하지 않는다.
 - Gemini API 오류, Key 누락, Timeout, Rate Limit, Structured Output 검증 실패는 시스템 오류다. 청소 FAIL로 바꾸지 않는다.
 - 사진을 판정하기 어렵거나 결과가 애매하면 REVIEW를 반환한다.
 - API 요청 처리 중이나 서버 시작 시 AI 학습을 실행하지 않는다.

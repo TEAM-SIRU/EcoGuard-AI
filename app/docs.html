@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f7f1" />
+    <title>EcoGuard AI | 청소 상태 판정</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+        color: #20332a;
+        background: #f4f7f1;
+        font-synthesis: none;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 36px 18px 64px; }
+      main { width: min(820px, 100%); margin: 0 auto; }
+      .brand { color: #36704f; font-size: 13px; font-weight: 700; letter-spacing: .12em; }
+      h1 { margin: 10px 0 8px; font-size: clamp(28px, 5vw, 40px); letter-spacing: -.04em; }
+      .intro { max-width: 650px; margin: 0; color: #5e6e64; line-height: 1.7; }
+      .card { margin-top: 26px; padding: 26px; border: 1px solid #dfe8dd; border-radius: 18px; background: #fff; box-shadow: 0 12px 34px #20332a0c; }
+      h2 { margin: 0 0 18px; font-size: 19px; }
+      .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0 0 24px; padding: 0; list-style: none; }
+      .steps li { padding: 13px; border-radius: 12px; background: #f4f7f1; color: #506257; font-size: 13px; line-height: 1.55; }
+      .steps b { display: block; margin-bottom: 4px; color: #2d5f43; }
+      .field { display: block; margin: 16px 0 0; }
+      .field > span { display: block; margin-bottom: 7px; font-size: 14px; font-weight: 700; }
+      .hint { display: block; margin-top: 6px; color: #718077; font-size: 12px; line-height: 1.5; }
+      input[type="text"], input[type="file"] { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #cad6ca; border-radius: 9px; background: #fff; color: #20332a; font: inherit; }
+      input[type="file"] { padding: 8px; }
+      input:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid #a6d2ae; outline-offset: 2px; }
+      .actions { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
+      button { min-height: 46px; padding: 0 20px; border: 0; border-radius: 10px; background: #36704f; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+      button:hover { background: #2c6042; }
+      button:disabled { cursor: wait; opacity: .65; }
+      .status { color: #5e6e64; font-size: 13px; }
+      .notice { margin: 20px 0 0; padding: 12px 14px; border-radius: 10px; background: #f5f7f5; color: #5e6e64; font-size: 12px; line-height: 1.6; }
+      .result { display: none; }
+      .result.visible { display: block; }
+      .decision { display: inline-flex; align-items: center; min-height: 34px; margin: 0 0 16px; padding: 0 12px; border-radius: 999px; background: #e9f5eb; color: #28633d; font-weight: 700; }
+      .decision.fail { background: #fff0e9; color: #9c482c; }
+      .decision.review { background: #fff6dd; color: #80621c; }
+      dl { display: grid; grid-template-columns: minmax(150px, .8fr) 2fr; gap: 0; margin: 0; border-top: 1px solid #e7ece7; }
+      dt, dd { margin: 0; padding: 11px 8px; border-bottom: 1px solid #e7ece7; font-size: 14px; line-height: 1.5; }
+      dt { color: #617066; }
+      dd { font-weight: 600; overflow-wrap: anywhere; }
+      details { margin-top: 16px; color: #536359; font-size: 13px; }
+      summary { cursor: pointer; font-weight: 700; }
+      pre { overflow: auto; padding: 14px; border-radius: 10px; background: #f4f7f1; font-size: 12px; line-height: 1.5; }
+      .error { color: #a23d32; }
+      @media (max-width: 600px) {
+        body { padding: 24px 14px 40px; }
+        .card { padding: 20px 16px; }
+        .steps { grid-template-columns: 1fr; }
+        dl { grid-template-columns: 1fr; }
+        dt { padding-bottom: 2px; border-bottom: 0; }
+        dd { padding-top: 2px; }
+        .actions { align-items: flex-start; flex-direction: column; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">ECOGUARD AI · V1</div>
+      <h1>청소 결과 사진 판정</h1>
+      <p class="intro">청소구역 사진을 보내면 쓰레받이와 쓰레기의 상태, 청소구역의 청결도를 확인해 PASS, FAIL 또는 REVIEW로 판정합니다.</p>
+
+      <section class="card" aria-labelledby="guide-title">
+        <h2 id="guide-title">사진 판정 요청</h2>
+        <ol class="steps">
+          <li><b>1. 사진 선택</b>청소구역이 잘 보이는 사진 한 장을 선택하세요.</li>
+          <li><b>2. 요청 정보 입력</b>청소구역 ID를 입력하세요.</li>
+          <li><b>3. 판정 요청</b>버튼을 누르면 결과가 아래에 표시됩니다.</li>
+        </ol>
+
+        <form id="inspection-form">
+          <label class="field" for="image">
+            <span>청소구역 사진 <strong aria-hidden="true">*</strong></span>
+            <input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required />
+            <small class="hint">필수 · JPG, PNG, WebP · 최대 10MB</small>
+          </label>
+
+          <label class="field" for="zone_id">
+            <span>구역 ID</span>
+            <input id="zone_id" name="zone_id" type="text" maxlength="128" placeholder="예: zone-a" required />
+            <small class="hint">필수 · 요청 기록용 정보이며 사진 판정에는 사용되지 않습니다.</small>
+          </label>
+
+          <div class="actions">
+            <button id="submit-button" type="submit">사진 판정하기</button>
+            <span class="status" id="status" role="status" aria-live="polite">요청을 준비했습니다.</span>
+          </div>
+        </form>
+        <p class="notice">선택한 사진은 판정을 위해 Gemini API로 전송됩니다. 사진 판독이 어렵거나 필수 조건을 확실히 확인할 수 없으면 REVIEW로 표시합니다.</p>
+      </section>
+
+      <section class="card result" id="result" aria-labelledby="result-title" aria-live="polite">
+        <h2 id="result-title">판정 결과</h2>
+        <p class="decision" id="decision"></p>
+        <dl id="result-fields"></dl>
+        <details>
+          <summary>원본 API 응답 보기</summary>
+          <pre id="raw-response"></pre>
+        </details>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("inspection-form");
+      const submitButton = document.getElementById("submit-button");
+      const statusText = document.getElementById("status");
+      const resultSection = document.getElementById("result");
+      const decisionPill = document.getElementById("decision");
+      const resultFields = document.getElementById("result-fields");
+      const rawResponse = document.getElementById("raw-response");
+
+      const labels = {
+        image_assessable: "사진 판독 가능",
+        dustpan_detected: "쓰레받이 확인",
+        trash_detected: "쓰레기 확인",
+        trash_inside_dustpan: "쓰레받이 안에 쓰레기",
+        cleaning_area_clean: "청소구역이 깨끗함",
+        needs_review: "사람의 재확인 필요",
+        reasons: "판정 근거",
+        zone_id: "구역 ID",
+      };
+      const decisionLabels = { PASS: "통과", FAIL: "실패", REVIEW: "재확인 필요" };
+
+      function displayValue(value) {
+        if (typeof value === "boolean") return value ? "예" : "아니요";
+        if (Array.isArray(value)) return value.join(" · ");
+        if (value === null || value === undefined || value === "") return "없음";
+        return String(value);
+      }
+
+      function addResultRow(label, value) {
+        const term = document.createElement("dt");
+        const description = document.createElement("dd");
+        term.textContent = label;
+        description.textContent = displayValue(value);
+        resultFields.append(term, description);
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        submitButton.disabled = true;
+        statusText.classList.remove("error");
+        statusText.textContent = "사진을 판정하고 있습니다. 잠시 기다려 주세요.";
+        resultSection.classList.remove("visible");
+
+        try {
+          const response = await fetch("/api/v1/cleaning/evaluate", {
+            method: "POST",
+            body: new FormData(form),
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            const errorCode = payload.error_code ? `[${payload.error_code}] ` : "";
+            throw new Error(`${errorCode}${payload.message || "요청을 처리하지 못했습니다. 입력값과 서버 상태를 확인해 주세요."}`);
+          }
+
+          resultFields.replaceChildren();
+          const decision = payload.decision;
+          decisionPill.className = "decision";
+          if (decision === "FAIL") decisionPill.classList.add("fail");
+          if (decision === "REVIEW") decisionPill.classList.add("review");
+          decisionPill.textContent = `최종 판정: ${decisionLabels[decision] || decision} (${decision})`;
+
+          for (const [key, label] of Object.entries(labels)) {
+            if (Object.hasOwn(payload, key)) addResultRow(label, payload[key]);
+          }
+          rawResponse.textContent = JSON.stringify(payload, null, 2);
+          resultSection.classList.add("visible");
+          statusText.textContent = "판정이 완료되었습니다.";
+        } catch (error) {
+          statusText.classList.add("error");
+          statusText.textContent = error instanceof TypeError
+            ? "서버에 연결할 수 없습니다. 서버 창이 실행 중인지 확인해 주세요."
+            : error.message;
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

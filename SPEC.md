@@ -56,16 +56,20 @@ REVIEW는 사진 자체를 판정할 수 없거나 가림, 흐림, 어두움 등
 
 ## API 계약
 
-### POST /api/v1/cleaning/evaluate
+### POST /verifications/{verificationId}/ai-review
 
-Content-Type은 multipart/form-data다.
+CSV 명세에서 이 경로는 시스템 권한으로 호출한다. Content-Type은 multipart/form-data다.
 
-필수 입력:
+경로 입력:
+
+- verificationId: 검수할 백엔드 검증 ID
+
+필수 multipart/form-data 입력:
 
 - image: JPEG, PNG 또는 WebP 사진 파일
 - zone_id: 기록용 청소구역 식별자
 
-zone_id는 공백이 아닌 1~128자 문자열이어야 한다. 기본 업로드 한도는 10 MiB, 이미지 해상도 한도는 20 megapixels다.
+verificationId는 공백이 아닌 1~128자 문자열이어야 하며 zone_id도 공백이 아닌 1~128자 문자열이어야 한다. 이 서비스에는 검증 내역 저장소가 없으므로 verificationId가 실제로 존재하는지는 조회하지 않는다. 기본 업로드 한도는 10 MiB, 이미지 해상도 한도는 20 megapixels다.
 
 성공 응답은 HTTP 200이며 다음 JSON 필드를 포함한다.
 
@@ -79,7 +83,11 @@ zone_id는 공백이 아닌 1~128자 문자열이어야 한다. 기본 업로드
 - reasons
 - zone_id
 
-checkpoint_id와 user_id는 요청과 응답에 포함하지 않는다.
+이전 로컬 클라이언트와의 호환을 위해 `POST /api/v1/cleaning/evaluate`도 OpenAPI 문서에서 숨긴 호환 경로로 유지한다. 새 백엔드 연동은 위 `ai-review` 경로를 사용한다.
+
+CSV 두 파일은 같은 경로 목록이며, AI 검수 요청/응답 본문이나 인증 방식은 정의하지 않는다. 현재 FastAPI는 사용자/시스템 역할 인증이나 검수 데이터 저장을 구현하지 않는다. 운영에서는 시스템 권한이 확인된 애플리케이션 백엔드 뒤에서만 이 경로를 호출해야 한다.
+
+CSV의 `GET /verifications/{verificationId}/review`(공통/학생), `GET /verifications`(교사), `PATCH /verifications/{verificationId}/review`(교사)는 애플리케이션 백엔드의 결과 조회, 대기 목록, 수동 검토 기능이다. 데이터 저장소와 교사/학생 인증이 필요한 이 기능들은 AI 판정 서비스 범위에 포함하지 않는다.
 
 ## 시스템 오류
 
@@ -92,7 +100,7 @@ checkpoint_id와 user_id는 요청과 응답에 포함하지 않는다.
 - Structured Output 파싱 또는 Pydantic 검증 실패: HTTP 502, STRUCTURED_OUTPUT_INVALID
 - 지원하지 않는 형식 또는 잘못된 이미지: HTTP 422, INVALID_IMAGE
 - 업로드 크기 초과: HTTP 413, IMAGE_TOO_LARGE
-- 필수 필드 누락 또는 zone_id 검증 실패: FastAPI HTTP 422
+- 필수 필드 누락 또는 zone_id/verificationId 검증 실패: FastAPI HTTP 422
 
 GET /health는 외부 Gemini 호출 없이 HTTP 200과 상태를 반환한다. Gemini API Key가 없더라도 서버 시작과 Health 확인은 가능하다.
 
@@ -101,7 +109,7 @@ GET /health는 외부 Gemini 호출 없이 HTTP 200과 상태를 반환한다. G
 - API Key는 GEMINI_API_KEY 환경변수에서 읽는다. 저장소에는 빈 값만 담은 .env.example을 둔다.
 - .env, 촬영 데이터, 모델 산출물, 가상환경을 Git에 올리지 않는다.
 - 사진 바이트와 API Key를 애플리케이션 로그에 남기지 않는다.
-- AI 판정에는 이미지와 정적 검사 프롬프트만 전달한다. zone_id Metadata는 전송하지 않는다.
+- AI 판정에는 이미지와 정적 검사 프롬프트만 전달한다. verificationId와 zone_id Metadata는 전송하지 않는다.
 
 ## V1 제외 항목
 

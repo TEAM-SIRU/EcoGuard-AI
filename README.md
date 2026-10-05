@@ -6,7 +6,7 @@
 
     사진 업로드 → FastAPI → Gemini API → Structured Output → Pydantic 검증 → JSON 응답
 
-Gemini는 사진 판독 가능 여부, 쓰레받이/쓰레기 존재 여부, 쓰레기가 쓰레받이 안에 있는지, 청소구역이 깨끗한지, 사람의 재확인이 필요한지를 평가합니다. 요청에는 청소구역 식별용 zone_id만 함께 보내며, 이 값은 기록용 Metadata로만 사용하고 Gemini에 보내거나 실제 장소 검증에 사용하지 않습니다. checkpoint_id와 user_id는 V1 요청에서 받지 않습니다.
+Gemini는 사진 판독 가능 여부, 쓰레받이/쓰레기 존재 여부, 쓰레기가 쓰레받이 안에 있는지, 청소구역이 깨끗한지, 사람의 재확인이 필요한지를 평가합니다. 요청에는 청소구역 식별용 `zone_id`를 함께 보내며, 이 값은 기록용 Metadata로만 사용하고 Gemini에 보내거나 실제 장소 검증에 사용하지 않습니다. `checkpoint_id`와 `user_id`는 V1 요청에서 받지 않습니다.
 
 PASS에는 판정 가능, 쓰레받이 검출, 쓰레기 검출, 쓰레받이 안에 수거, 청소구역 깨끗함이 모두 필요합니다. 판정 가능한 사진에서 하나라도 충족하지 않으면 FAIL입니다. 필수 조건 중 하나라도 확실히 볼 수 없으면 REVIEW입니다. 쓰레기가 보이지 않는 사진은 PASS가 될 수 없습니다.
 
@@ -32,17 +32,20 @@ Python 3.11 이상 3.14 미만을 사용합니다.
 
 ## API 사용
 
-POST /api/v1/cleaning/evaluate에 multipart/form-data를 보냅니다.
+노션의 AI 검수 명세에 맞춘 기본 경로는 `POST /verifications/{verificationId}/ai-review`이며 `multipart/form-data`를 받습니다. 이 경로는 CSV에서 시스템 권한으로 지정되어 있습니다.
 
-필수 필드:
+필수 입력:
+- `verificationId`: 경로의 검증 식별자(공백이 아닌 1~128자 문자열)
 - image: JPEG, PNG 또는 WebP 파일
 - zone_id: 기록용 청소구역 식별자(공백이 아닌 1~128자 문자열)
 
 PowerShell 예시:
 
-    curl.exe -X POST http://127.0.0.1:8000/api/v1/cleaning/evaluate -F "image=@stairs.jpg" -F "zone_id=zone-a"
+    curl.exe -X POST http://127.0.0.1:8000/verifications/verify-001/ai-review -F "image=@stairs.jpg" -F "zone_id=zone-a"
 
-정상 응답에는 decision, 이미지 평가 필드, reasons, 요청에서 받은 zone_id가 포함됩니다. decision 값은 PASS, FAIL 또는 REVIEW입니다. checkpoint_id와 user_id는 요청 및 응답에 포함되지 않습니다. Key 누락이나 Gemini 오류는 청소 판정과 별도의 error_code/message JSON과 HTTP 오류 상태로 반환합니다.
+성공 응답에는 decision, 이미지 평가 필드, reasons, 요청에서 받은 `zone_id`가 포함됩니다. decision 값은 PASS, FAIL 또는 REVIEW입니다. `checkpoint_id`와 `user_id`는 요청 및 응답에 포함하지 않습니다. Key 누락이나 Gemini 오류는 청소 판정과 별도의 `error_code`/`message` JSON과 HTTP 오류 상태로 반환합니다. 이전 로컬 사용을 위해 `POST /api/v1/cleaning/evaluate`도 OpenAPI 문서에서 숨긴 호환 경로로 유지합니다.
+
+CSV 두 파일에는 같은 경로 목록이 있고, 요청·응답 본문 규격은 포함되어 있지 않습니다. CSV가 나열한 `GET /verifications/{verificationId}/review`(공통·학생), `GET /verifications`(교사), `PATCH /verifications/{verificationId}/review`(교사)는 검수 내역 저장소와 사용자 권한이 필요한 애플리케이션 백엔드 기능입니다. 이 Gemini 판정 서비스에는 해당 저장소나 인증 체계가 없으므로 구현하지 않습니다. 또한 현재 FastAPI는 시스템 역할을 직접 인증하지 않습니다. 운영 환경에서는 시스템 인증이 적용된 백엔드 뒤에서만 AI 검수 경로를 호출하도록 제한해야 합니다.
 
 Gemini가 일시적으로 요청을 거절하는 HTTP 429 또는 503 오류에는 최대 2회 재시도하며, 간격은 1초와 2초입니다. 재시도 후에도 실패하면 화면에 오류 코드가 표시됩니다.
 
